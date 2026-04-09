@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BLE Crowd Analytics Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; }
+    </style>
+</head>
+<body class="p-8 text-gray-800">
+
+    <div class="max-w-6xl mx-auto">
+        <header class="flex justify-between items-center mb-8">
+            <div>
+                <h1 class="text-3xl font-bold text-gray-900">Room Activity Monitor</h1>
+                <p class="text-gray-500 text-sm mt-1">CREATE-X Live Crowd Estimation via BLE</p>
+            </div>
+            <div id="status-badge" class="px-4 py-2 rounded-full text-sm font-semibold bg-green-100 text-green-800 transition-colors duration-300">
+                Status: Quiet
+            </div>
+        </header>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+            <div class="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
+                <h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wider">Estimated People</h2>
+                <div class="mt-2 flex items-baseline gap-2">
+                    <span id="est-people" class="text-5xl font-extrabold text-blue-600">0</span>
+                    <span class="text-gray-400 text-sm">individuals</span>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
+                <h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wider">Raw BLE Signals</h2>
+                <div class="mt-2 flex items-baseline gap-2">
+                    <span id="raw-signals" class="text-4xl font-bold text-gray-700">0</span>
+                    <span class="text-gray-400 text-sm">devices</span>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
+                <h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wider">Room Capacity</h2>
+                <div class="mt-2 flex items-baseline gap-2">
+                    <span id="capacity-pct" class="text-4xl font-bold text-gray-700">0%</span>
+                </div>
+                <div class="w-full bg-gray-200 rounded-full h-2.5 mt-4">
+                    <div id="capacity-bar" class="bg-blue-600 h-2.5 rounded-full transition-all duration-500" style="width: 0%"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
+            <h2 class="text-lg font-semibold text-gray-800 mb-4">Crowd Density Over Time</h2>
+            <div class="relative h-72 w-full">
+                <canvas id="crowdChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- System Configuration ---
+        const ROOM_CAPACITY = 100;
+        const STATIC_DEVICES = 12; // Base noise to filter out
+        const DEVICE_MULTIPLIER = 1.5; // Average devices per person
+
+        // --- DOM Elements ---
+        const elEstPeople = document.getElementById('est-people');
+        const elRawSignals = document.getElementById('raw-signals');
+        const elCapacityPct = document.getElementById('capacity-pct');
+        const elCapacityBar = document.getElementById('capacity-bar');
+        const elStatusBadge = document.getElementById('status-badge');
+
+        // --- Chart.js Setup ---
+        const ctx = document.getElementById('crowdChart').getContext('2d');
+        const crowdChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: [], // Time labels
+                datasets: [{
+                    label: 'Estimated People',
+                    data: [],
+                    borderColor: 'rgb(37, 99, 235)', // Tailwind Blue-600
+                    backgroundColor: 'rgba(37, 99, 235, 0.1)',
+                    borderWidth: 2,
+                    fill: true,
+                    tension: 0.4 // Smooth curves
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: { beginAtZero: true, suggestedMax: ROOM_CAPACITY },
+                    x: { display: false } // Hide X axis for cleaner look
+                },
+                plugins: { legend: { display: false } }
+            }
+        });
+
+        // --- Core Update Function ---
+        function updateDashboard(rawBleCount) {
+            // 1. Calculate the Data
+            let activeDevices = Math.max(0, rawBleCount - STATIC_DEVICES);
+            let estimatedPeople = Math.round(activeDevices / DEVICE_MULTIPLIER);
+            let capacityPct = Math.min(100, Math.round((estimatedPeople / ROOM_CAPACITY) * 100));
+
+            // 2. Update KPIs
+            elRawSignals.innerText = rawBleCount;
+            elEstPeople.innerText = estimatedPeople;
+            elCapacityPct.innerText = `${capacityPct}%`;
+            elCapacityBar.style.width = `${capacityPct}%`;
+
+            // 3. Update Status Indicator & Progress Bar Color
+            if (capacityPct >= 90) {
+                elStatusBadge.className = "px-4 py-2 rounded-full text-sm font-semibold bg-red-100 text-red-800 transition-colors duration-300";
+                elStatusBadge.innerText = "Status: Overcrowded";
+                elCapacityBar.className = "bg-red-600 h-2.5 rounded-full transition-all duration-500";
+            } else if (capacityPct >= 60) {
+                elStatusBadge.className = "px-4 py-2 rounded-full text-sm font-semibold bg-yellow-100 text-yellow-800 transition-colors duration-300";
+                elStatusBadge.innerText = "Status: Active";
+                elCapacityBar.className = "bg-yellow-500 h-2.5 rounded-full transition-all duration-500";
+            } else {
+                elStatusBadge.className = "px-4 py-2 rounded-full text-sm font-semibold bg-green-100 text-green-800 transition-colors duration-300";
+                elStatusBadge.innerText = "Status: Quiet";
+                elCapacityBar.className = "bg-blue-600 h-2.5 rounded-full transition-all duration-500";
+            }
+
+            // 4. Update Chart
+            const now = new Date().toLocaleTimeString();
+            crowdChart.data.labels.push(now);
+            crowdChart.data.datasets[0].data.push(estimatedPeople);
+
+            // Keep only the last 20 data points on the chart to prevent clutter
+            if (crowdChart.data.labels.length > 20) {
+                crowdChart.data.labels.shift();
+                crowdChart.data.datasets[0].data.shift();
+            }
+            crowdChart.update();
+        }
+
+        // --- Backend Simulation (Replace this block later!) ---
+        // This simulates receiving a new BLE count from your Pi every 3 seconds.
+        setInterval(() => {
+            // Generate a random raw BLE count for presentation testing
+            // Base it loosely around 50 people for testing (50 * 1.5 + 12 = ~87)
+            const simulatedRawCount = Math.floor(Math.random() * (120 - 40 + 1)) + 40; 
+            
+            updateDashboard(simulatedRawCount);
+        }, 3000);
+
+        // --- How to Plug in your Backend Later ---
+        /*
+        When your Python/Node backend is ready, delete the `setInterval` above.
+        Instead, set up a fetch or WebSocket connection to your Pi.
+        
+        Example with fetch (polling):
+        setInterval(async () => {
+            const response = await fetch('http://your-pi-ip:5000/api/count');
+            const data = await response.json();
+            updateDashboard(data.raw_ble_count);
+        }, 5000);
+        */
+
+    </script>
+</body>
+</html>
