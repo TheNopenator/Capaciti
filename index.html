@@ -124,7 +124,6 @@
     const STORAGE_KEY = "bleCrowdHistory";
     const MAX_SAVED_POINTS = 500;
     const MAX_CHART_POINTS = 30;
-    const SEEDED_POINTS = 24;
 
     const elEstPeople = document.getElementById('est-people');
     const elRawSignals = document.getElementById('raw-signals');
@@ -324,36 +323,6 @@
         updateInsights();
     }
 
-    function seedInitialHistory() {
-        if (historyData.length > 0) return;
-
-        const now = new Date();
-        let lastRaw = 72;
-
-        for (let i = SEEDED_POINTS; i > 0; i--) {
-            const pointTime = new Date(now.getTime() - i * 3 * 60 * 1000);
-
-            const change = Math.floor(Math.random() * 11) - 5;
-            lastRaw = Math.max(35, Math.min(120, lastRaw + change));
-
-            const metrics = calculateMetrics(lastRaw);
-
-            historyData.push({
-                timestamp: pointTime.toISOString(),
-                timeLabel: pointTime.toLocaleTimeString([], {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    second: '2-digit'
-                }),
-                rawBleCount: metrics.rawBleCount,
-                estimatedPeople: metrics.estimatedPeople,
-                capacityPct: metrics.capacityPct
-            });
-        }
-
-        saveHistory();
-    }
-
     function restoreDashboard() {
         if (historyData.length === 0) return;
 
@@ -383,7 +352,6 @@
         updateInsights();
     }
 
-    seedInitialHistory();
     restoreDashboard();
 
     setInterval(() => {
@@ -394,16 +362,6 @@
     }, 3000);
 
     window.clearHistory = clearHistory;
-
-    /*
-    Replace demo mode later with real backend data:
-
-    setInterval(async () => {
-        const response = await fetch('http://your-pi-ip:5000/api/count');
-        const data = await response.json();
-        appendNewReading(data.raw_ble_count);
-    }, 5000);
-    */
 </script>
 </body>
 </html>
