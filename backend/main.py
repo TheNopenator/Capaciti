@@ -1,6 +1,9 @@
+from flask import Flask, request, jsonify
 import asyncio
 from bleak import BleakScanner
 import math
+
+app = Flask(__name__)
 
 TX_POWER=-47
 N=2
@@ -8,7 +11,7 @@ N=2
 def rssi_to_distance(rssi):
     return 10 ** ((TX_POWER - rssi) / (10 * N))
 
-async def main(max_distance=5):
+async def scan_ble(max_distance=5):
     print("Scanning for BLE devices...")
 
 
@@ -23,7 +26,22 @@ async def main(max_distance=5):
 
     num_people = math.ceil(len(nearby) / 2.0)
 
-    print("\nDevices within",max_distance,"meters:",len(nearby))
-    print("\nNum People Estimated:", num_people)
+    return {
+        "devices_within_range": len(nearby),
+        "estimated_people": num_people,
+        "max_distance": max_distance,
+        "device_addresses": list(nearby)
+    }
 
-asyncio.run(main(1))
+@app.route("/scan", methods=["GET"])
+def scan():
+    try:
+        max_distance = float(request.args.get("max_distance", 5))
+    except ValueError:
+        return jsonify({"error": "Invalid max_distance"}), 400
+    
+    result = asyncio.run(scan_ble(max_distance))
+    return jsonify(result)
+
+if __name__ == "__main__":
+    app.run(host="172.20.10.5", port=8000, debug=True)
