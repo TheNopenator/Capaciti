@@ -38,6 +38,7 @@
         }
     </style>
 </head>
+
 <body class="p-8 text-gray-800 bg-gradient-to-br from-gray-100 via-gray-50 to-gray-200 min-h-screen">
 
     <div class="max-w-6xl mx-auto">
@@ -45,9 +46,11 @@
             <div>
                 <h1 class="text-3xl font-bold text-gray-900">Room Activity Monitor</h1>
                 <p class="text-gray-500 text-sm mt-1">CREATE-X Live Crowd Estimation via BLE</p>
+                <p id="api-debug" class="text-xs text-gray-400 mt-1">Waiting for backend...</p>
             </div>
-            <div id="status-badge" class="px-4 py-2 rounded-full text-sm font-semibold bg-green-100 text-green-800 transition-colors duration-300 shadow-md">
-                Status: Quiet
+
+            <div id="status-badge" class="px-4 py-2 rounded-full text-sm font-semibold bg-gray-200 text-gray-800 transition-colors duration-300 shadow-md">
+                Status: Waiting
             </div>
         </header>
 
@@ -73,6 +76,7 @@
                 <div class="mt-2 flex items-baseline gap-2">
                     <span id="capacity-pct" class="text-4xl font-bold text-gray-700">0%</span>
                 </div>
+
                 <div class="w-full bg-gray-200 rounded-full h-2.5 mt-4 shadow-inner">
                     <div id="capacity-bar" class="bg-blue-600 h-2.5 rounded-full transition-all duration-500" style="width: 0%"></div>
                 </div>
@@ -82,6 +86,7 @@
         <div id="chart-card" class="lift-card glass-panel rounded-2xl p-6 border border-white/70">
             <div class="flex items-center justify-between mb-4">
                 <h2 class="text-lg font-semibold text-gray-800">Crowd Density Over Time</h2>
+
                 <button
                     onclick="clearHistory()"
                     class="px-3 py-2 text-sm font-medium rounded-lg bg-white/80 text-gray-700 border border-gray-200 shadow-sm hover:bg-white"
@@ -118,18 +123,19 @@
 
 <script>
     const ROOM_CAPACITY = 100;
-    const STATIC_DEVICES = 12;
-    const DEVICE_MULTIPLIER = 1.5;
 
     const STORAGE_KEY = "bleCrowdHistory";
     const MAX_SAVED_POINTS = 500;
     const MAX_CHART_POINTS = 30;
+
+    const PI_API_URL = "http://172.20.10.5:8000/scan?max_distance=1000";
 
     const elEstPeople = document.getElementById('est-people');
     const elRawSignals = document.getElementById('raw-signals');
     const elCapacityPct = document.getElementById('capacity-pct');
     const elCapacityBar = document.getElementById('capacity-bar');
     const elStatusBadge = document.getElementById('status-badge');
+    const elApiDebug = document.getElementById('api-debug');
 
     const elInsightAverage = document.getElementById('insight-average');
     const elInsightPeak = document.getElementById('insight-peak');
@@ -139,6 +145,7 @@
     let historyData = loadHistory();
 
     const ctx = document.getElementById('crowdChart').getContext('2d');
+
     const crowdChart = new Chart(ctx, {
         type: 'line',
         data: {
@@ -196,7 +203,11 @@
     function loadHistory() {
         try {
             const saved = localStorage.getItem(STORAGE_KEY);
-            if (!saved) return [];
+
+            if (!saved) {
+                return [];
+            }
+
             const parsed = JSON.parse(saved);
             return Array.isArray(parsed) ? parsed : [];
         } catch (error) {
@@ -213,19 +224,11 @@
         }
     }
 
-    function calculateMetrics(rawBleCount) {
-        const activeDevices = Math.max(0, rawBleCount - STATIC_DEVICES);
-        const estimatedPeople = Math.round(activeDevices / DEVICE_MULTIPLIER);
-        const capacityPct = Math.min(100, Math.round((estimatedPeople / ROOM_CAPACITY) * 100));
-
-        return {
-            rawBleCount,
-            estimatedPeople,
-            capacityPct
-        };
+    function calculateCapacityPct(estimatedPeople) {
+        return Math.min(100, Math.round((estimatedPeople / ROOM_CAPACITY) * 100));
     }
 
-    function setStatus(capacityPct) {
+    function setConnectedStatus(capacityPct) {
         if (capacityPct >= 90) {
             elStatusBadge.className = "px-4 py-2 rounded-full text-sm font-semibold bg-red-100 text-red-800 transition-colors duration-300 shadow-md";
             elStatusBadge.innerText = "Status: Overcrowded";
@@ -241,18 +244,25 @@
         }
     }
 
+    function setApiOfflineStatus() {
+        elStatusBadge.className = "px-4 py-2 rounded-full text-sm font-semibold bg-gray-200 text-gray-800 transition-colors duration-300 shadow-md";
+        elStatusBadge.innerText = "Status: API Offline";
+    }
+
     function updateKpis(metrics) {
         elRawSignals.innerText = metrics.rawBleCount;
         elEstPeople.innerText = metrics.estimatedPeople;
         elCapacityPct.innerText = `${metrics.capacityPct}%`;
         elCapacityBar.style.width = `${metrics.capacityPct}%`;
-        setStatus(metrics.capacityPct);
+        setConnectedStatus(metrics.capacityPct);
     }
 
     function redrawChartFromHistory() {
         const recentHistory = historyData.slice(-MAX_CHART_POINTS);
+
         crowdChart.data.labels = recentHistory.map(point => point.timeLabel);
         crowdChart.data.datasets[0].data = recentHistory.map(point => point.estimatedPeople);
+
         crowdChart.update();
     }
 
@@ -269,6 +279,7 @@
         const average = Math.round(total / historyData.length);
 
         let peakPoint = historyData[0];
+
         for (const point of historyData) {
             if (point.estimatedPeople > peakPoint.estimatedPeople) {
                 peakPoint = point;
@@ -295,8 +306,11 @@
         elInsightTrend.innerText = trendText;
     }
 
-    function appendNewReading(rawBleCount, customDate = null) {
-        const metrics = calculateMetrics(rawBleCount);
+    function appendApiReading(apiData, customDate = null) {
+        const rawBleCount = Number(apiData.devices_within_range || 0);
+        const estimatedPeople = Number(apiData.estimated_people || 0);
+        const capacityPct = calculateCapacityPct(estimatedPeople);
+
         const now = customDate || new Date();
 
         const point = {
@@ -306,9 +320,9 @@
                 minute: '2-digit',
                 second: '2-digit'
             }),
-            rawBleCount: metrics.rawBleCount,
-            estimatedPeople: metrics.estimatedPeople,
-            capacityPct: metrics.capacityPct
+            rawBleCount: rawBleCount,
+            estimatedPeople: estimatedPeople,
+            capacityPct: capacityPct
         };
 
         historyData.push(point);
@@ -318,15 +332,26 @@
         }
 
         saveHistory();
-        updateKpis(metrics);
+
+        updateKpis({
+            rawBleCount: rawBleCount,
+            estimatedPeople: estimatedPeople,
+            capacityPct: capacityPct
+        });
+
         redrawChartFromHistory();
         updateInsights();
+
+        elApiDebug.innerText = `Last API response: ${rawBleCount} devices, ${estimatedPeople} people at ${point.timeLabel}`;
     }
 
     function restoreDashboard() {
-        if (historyData.length === 0) return;
+        if (historyData.length === 0) {
+            return;
+        }
 
         const latest = historyData[historyData.length - 1];
+
         updateKpis({
             rawBleCount: latest.rawBleCount,
             estimatedPeople: latest.estimatedPeople,
@@ -340,6 +365,7 @@
     function clearHistory() {
         historyData = [];
         localStorage.removeItem(STORAGE_KEY);
+
         crowdChart.data.labels = [];
         crowdChart.data.datasets[0].data = [];
         crowdChart.update();
@@ -348,20 +374,46 @@
         elEstPeople.innerText = "0";
         elCapacityPct.innerText = "0%";
         elCapacityBar.style.width = "0%";
-        setStatus(0);
+        elApiDebug.innerText = "History cleared. Waiting for backend...";
+
+        setConnectedStatus(0);
         updateInsights();
+    }
+
+    async function fetchBleReading() {
+        console.log("Calling backend:", PI_API_URL);
+
+        try {
+            const response = await fetch(PI_API_URL);
+
+            console.log("Backend response status:", response.status);
+
+            if (!response.ok) {
+                throw new Error(`API error: ${response.status}`);
+            }
+
+            const data = await response.json();
+
+            console.log("Data received from Raspberry Pi:", data);
+
+            appendApiReading(data);
+        } catch (error) {
+            console.error("Failed to fetch BLE data:", error);
+            elApiDebug.innerText = `Backend error: ${error.message}`;
+            setApiOfflineStatus();
+        }
     }
 
     restoreDashboard();
 
+    fetchBleReading();
+
     setInterval(() => {
-        const lastRaw = historyData.length > 0 ? historyData[historyData.length - 1].rawBleCount : 72;
-        const change = Math.floor(Math.random() * 9) - 4;
-        const nextRaw = Math.max(35, Math.min(120, lastRaw + change));
-        appendNewReading(nextRaw);
-    }, 3000);
+        fetchBleReading();
+    }, 5000);
 
     window.clearHistory = clearHistory;
 </script>
+
 </body>
 </html>
