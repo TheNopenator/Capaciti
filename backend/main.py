@@ -1,9 +1,12 @@
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 import asyncio
 from bleak import BleakScanner
 import math
 
 app = Flask(__name__)
+
+CORS(app)
 
 TX_POWER=-47
 N=2
