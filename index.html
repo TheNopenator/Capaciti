@@ -36,23 +36,63 @@
                 0 10px 24px rgba(15, 23, 42, 0.08),
                 inset 0 1px 0 rgba(255,255,255,0.95);
         }
+
+        /* Hide number spinners for a cleaner field */
+        .distance-input-no-spin::-webkit-outer-spin-button,
+        .distance-input-no-spin::-webkit-inner-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+
+        .distance-input-no-spin {
+            -moz-appearance: textfield;
+        }
     </style>
 </head>
 
 <body class="p-8 text-gray-800 bg-gradient-to-br from-gray-100 via-gray-50 to-gray-200 min-h-screen">
 
     <div class="max-w-6xl mx-auto">
-        <header class="flex justify-between items-center mb-8">
+        <header class="flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-start mb-8">
             <div>
                 <h1 class="text-3xl font-bold text-gray-900">Room Activity Monitor</h1>
                 <p class="text-gray-500 text-sm mt-1">CREATE-X Live Crowd Estimation via BLE</p>
                 <p id="api-debug" class="text-xs text-gray-400 mt-1">Waiting for backend...</p>
             </div>
 
-            <div id="status-badge" class="px-4 py-2 rounded-full text-sm font-semibold bg-gray-200 text-gray-800 transition-colors duration-300 shadow-md">
+            <div id="status-badge" class="self-start sm:self-auto px-4 py-2 rounded-full text-sm font-semibold bg-gray-200 text-gray-800 transition-colors duration-300 shadow-md">
                 Status: Waiting
             </div>
         </header>
+
+        <section
+            class="lift-card glass-panel rounded-2xl p-5 md:p-6 mb-8 border border-white/70"
+            aria-label="BLE scan distance"
+        >
+            <div class="flex flex-col gap-4 md:flex-row md:items-center md:gap-6">
+                <div class="shrink-0 md:max-w-xs">
+                    <h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wider">Max scan distance</h2>
+                    <p class="text-xs text-gray-400 mt-1 leading-snug">0–20 meters</p>
+                </div>
+
+                <div class="flex flex-1 sm:justify-end">
+                    <div class="inline-flex items-baseline gap-2 rounded-xl border border-gray-200/90 bg-white/90 shadow-sm px-4 py-2.5 self-start sm:self-auto">
+                        <label for="max-distance-input" class="sr-only">Distance in meters, 0 to 20</label>
+                        <input
+                            type="number"
+                            id="max-distance-input"
+                            min="0"
+                            max="20"
+                            step="1"
+                            value="3"
+                            inputmode="numeric"
+                            class="distance-input-no-spin w-[4.25rem] sm:w-20 py-0.5 text-right text-2xl sm:text-3xl font-bold text-blue-600 tabular-nums bg-transparent border-0 focus:ring-0 focus:outline-none"
+                        />
+                        <span class="text-sm font-medium text-gray-400">m</span>
+                    </div>
+                </div>
+            </div>
+        </section>
 
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
             <div class="lift-card glass-panel rounded-2xl p-6 border border-white/70">
@@ -128,7 +168,7 @@
     const MAX_SAVED_POINTS = 500;
     const MAX_CHART_POINTS = 30;
 
-    const PI_API_URL = "http://172.20.10.5:8000/scan?max_distance=1000";
+    const PI_API_BASE = "http://172.20.10.5:8000/scan";
 
     const elEstPeople = document.getElementById('est-people');
     const elRawSignals = document.getElementById('raw-signals');
@@ -136,6 +176,10 @@
     const elCapacityBar = document.getElementById('capacity-bar');
     const elStatusBadge = document.getElementById('status-badge');
     const elApiDebug = document.getElementById('api-debug');
+    const elMaxDistanceInput = document.getElementById('max-distance-input');
+
+    const DIST_MIN_M = 0;
+    const DIST_MAX_M = 20;
 
     const elInsightAverage = document.getElementById('insight-average');
     const elInsightPeak = document.getElementById('insight-peak');
@@ -143,6 +187,51 @@
     const elInsightTrend = document.getElementById('insight-trend');
 
     let historyData = loadHistory();
+
+    function clampDistanceMeters(raw) {
+        const x = Math.round(Number(raw));
+        if (!Number.isFinite(x)) {
+            return DIST_MIN_M;
+        }
+        return Math.min(DIST_MAX_M, Math.max(DIST_MIN_M, x));
+    }
+
+    function getMaxDistanceMeters() {
+        return clampDistanceMeters(elMaxDistanceInput.value);
+    }
+
+    function normalizeDistanceField() {
+        elMaxDistanceInput.value = String(getMaxDistanceMeters());
+    }
+
+    function buildScanUrl() {
+        const m = getMaxDistanceMeters();
+        const params = new URLSearchParams({ max_distance: String(m) });
+        return `${PI_API_BASE}?${params.toString()}`;
+    }
+
+    function applyDistanceAndRefresh() {
+        normalizeDistanceField();
+        fetchBleReading();
+    }
+
+    elMaxDistanceInput.addEventListener('change', () => {
+        applyDistanceAndRefresh();
+    });
+
+    elMaxDistanceInput.addEventListener('blur', () => {
+        normalizeDistanceField();
+    });
+
+    elMaxDistanceInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            applyDistanceAndRefresh();
+            elMaxDistanceInput.blur();
+        }
+    });
+
+    normalizeDistanceField();
 
     const ctx = document.getElementById('crowdChart').getContext('2d');
 
@@ -381,10 +470,11 @@
     }
 
     async function fetchBleReading() {
-        console.log("Calling backend:", PI_API_URL);
+        const url = buildScanUrl();
+        console.log("Calling backend:", url);
 
         try {
-            const response = await fetch(PI_API_URL);
+            const response = await fetch(url);
 
             console.log("Backend response status:", response.status);
 
