@@ -17,17 +17,20 @@ def rssi_to_distance(rssi):
 async def scan_ble(max_distance=5):
     print("Scanning for BLE devices...")
 
-
     devices = await BleakScanner.discover(return_adv=True)
+    print(f"Total devices discovered: {len(devices)}")
 
     nearby = set()
 
     for address, (device, adv) in devices.items():
         distance = rssi_to_distance(adv.rssi)
+        print(f"Device {address}: RSSI={adv.rssi}, Distance={distance:.2f}m")
         if distance <= max_distance:
             nearby.add(address)
+            print(f"  -> Added to nearby (within {max_distance}m)")
 
     num_people = math.ceil(len(nearby) / 2.0)
+    print(f"Nearby devices: {len(nearby)}, Estimated people: {num_people}")
 
     return {
         "devices_within_range": len(nearby),
